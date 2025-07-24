@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { aiService } from '../services/aiService';
 import { apiService } from '../services/api';
+import { blockchainService } from '../services/blockchainService';
+import { notificationService } from '../services/notificationService';
 
 interface Review {
   id: string;
@@ -152,6 +154,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const addReview = async (reviewData: any) => {
     setLoading(true);
     try {
+      // Show processing notification
+      const processingId = notificationService.info(
+        'Processing Review',
+        'Your review is being analyzed and verified...'
+      );
+
       // Try to submit to API first
       const response = await apiService.submitReview({
         productName: reviewData.productName,
@@ -165,6 +173,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (response.success) {
         // Reload reviews from API
         await loadReviews();
+        notificationService.remove(processingId);
+        notificationService.success(
+          'Review Submitted',
+          'Your review has been successfully submitted and is pending approval.'
+        );
         return;
       }
     } catch (error) {
@@ -178,6 +191,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         content: reviewData.content,
         rating: reviewData.rating,
         productName: reviewData.productName
+      });
+
+      // Generate blockchain hash and store
+      const blockchainHash = await blockchainService.generateHash({
+        title: reviewData.title,
+        content: reviewData.content,
+        rating: reviewData.rating,
+        timestamp: new Date().toISOString(),
+        userId: reviewData.userId
       });
 
       const newReview: Review = {
@@ -200,14 +222,38 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         fakeConfidence: aiAnalysis.fakeConfidence,
         isVerified: reviewData.isVerified || false,
         qrCode: reviewData.qrCode,
-        blockchainHash: `0x${Math.random().toString(16).substr(2, 40)}`,
+        blockchainHash,
         helpful: 0,
         reportCount: 0
       };
 
+      // Store on blockchain (simulated)
+      try {
+        await blockchainService.storeOnBlockchain(newReview);
+        notificationService.success(
+          'Blockchain Verified',
+          'Your review has been securely stored on the blockchain.'
+        );
+      } catch (blockchainError) {
+        console.error('Blockchain storage failed:', blockchainError);
+        notificationService.warning(
+          'Blockchain Warning',
+          'Review saved locally, but blockchain storage failed.'
+        );
+      }
+
       setReviews(prev => [newReview, ...prev]);
+      
+      notificationService.success(
+        'Review Submitted',
+        'Your review has been analyzed by AI and is pending approval.'
+      );
     } catch (error) {
       console.error('AI analysis failed:', error);
+      notificationService.error(
+        'Submission Failed',
+        'Failed to process your review. Please try again.'
+      );
       throw new Error('Failed to process review');
     } finally {
       setLoading(false);
@@ -223,6 +269,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             review.id === reviewId ? { ...review, status } : review
           )
         );
+        
+        const review = reviews.find(r => r.id === reviewId);
+        if (review) {
+          notificationService.success(
+            'Review Updated',
+            `Review "${review.title}" has been ${status}.`
+          );
+        }
         return;
       }
     } catch (error) {
@@ -235,6 +289,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         review.id === reviewId ? { ...review, status } : review
       )
     );
+    
+    const review = reviews.find(r => r.id === reviewId);
+    if (review) {
+      notificationService.info(
+        'Review Status Updated',
+        `Review "${review.title}" has been ${status}.`
+      );
+    }
   };
 
   const getAnalytics = (): Analytics => {

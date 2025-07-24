@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Shield, Menu, X, LogOut, User, Settings } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import NotificationCenter from './NotificationCenter';
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -55,6 +56,7 @@ export default function Navbar() {
 
           {/* User Menu */}
           <div className="flex items-center space-x-4">
+            <NotificationCenter />
             {user ? (
               <div className="relative">
                 <button

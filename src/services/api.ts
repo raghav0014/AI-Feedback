@@ -1,5 +1,9 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
 
+// Add request timeout and retry logic
+const REQUEST_TIMEOUT = 10000; // 10 seconds
+const MAX_RETRIES = 3;
+
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;
@@ -53,6 +57,33 @@ export interface PurchaseVerificationResponse {
 }
 
 class ApiService {
+  private async delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private async retryRequest<T>(
+    requestFn: () => Promise<Response>,
+    retries: number = MAX_RETRIES
+  ): Promise<Response> {
+    try {
+      return await requestFn();
+    } catch (error) {
+      if (retries > 0 && this.isRetryableError(error)) {
+        await this.delay(1000 * (MAX_RETRIES - retries + 1)); // Exponential backoff
+        return this.retryRequest(requestFn, retries - 1);
+      }
+      throw error;
+    }
+  }
+
+  private isRetryableError(error: any): boolean {
+    return (
+      error instanceof TypeError || // Network errors
+      (error.status >= 500 && error.status < 600) || // Server errors
+      error.status === 429 // Rate limiting
+    );
+  }
+
   private getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('auth_token');
     return {
@@ -66,13 +97,21 @@ class ApiService {
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
     try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        ...options,
-        headers: {
-          ...this.getAuthHeaders(),
-          ...options.headers
-        }
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+
+      const response = await this.retryRequest(() =>
+        fetch(`${API_BASE_URL}${endpoint}`, {
+          ...options,
+          headers: {
+            ...this.getAuthHeaders(),
+            ...options.headers
+          },
+          signal: controller.signal
+        })
+      );
+
+      clearTimeout(timeoutId);
 
       const data = await response.json();
 
@@ -88,9 +127,16 @@ class ApiService {
         data
       };
     } catch (error) {
+      if (error.name === 'AbortError') {
+        return {
+          success: false,
+          error: 'Request timeout - please check your connection'
+        };
+      }
+      
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Network error'
+        error: error instanceof Error ? error.message : 'Network error occurred'
       };
     }
   }
