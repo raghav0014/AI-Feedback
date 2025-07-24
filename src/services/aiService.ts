@@ -1,9 +1,9 @@
 import OpenAI from 'openai';
 
-const openai = new OpenAI({
+const openai = import.meta.env.VITE_OPENAI_API_KEY ? new OpenAI({
   apiKey: import.meta.env.VITE_OPENAI_API_KEY,
   dangerouslyAllowBrowser: true // Note: In production, API calls should go through your backend
-});
+}) : null;
 
 export interface SentimentAnalysis {
   sentiment: 'positive' | 'negative' | 'neutral';
@@ -24,6 +24,12 @@ export interface ReviewAnalysisRequest {
 
 class AIService {
   async analyzeSentiment(review: ReviewAnalysisRequest): Promise<SentimentAnalysis> {
+    // If no OpenAI API key is configured, use fallback analysis
+    if (!openai) {
+      console.warn('OpenAI API key not configured, using fallback analysis');
+      return this.fallbackAnalysis(review);
+    }
+
     try {
       const prompt = `
 Analyze the following product review for sentiment, authenticity, and provide a summary:
