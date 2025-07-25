@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Mail, Lock, User, Eye, EyeOff } from 'lucide-react';
+import { Shield, Mail, Lock, User, Eye, EyeOff, Chrome, Facebook } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function LoginPage() {
@@ -12,7 +12,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
-  const { login, register } = useAuth();
+  const { login, register, loginWithGoogle, loginWithFacebook, resetPassword, authProvider } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -40,6 +40,49 @@ export default function LoginPage() {
     }
   };
 
+  const handleSocialLogin = async (provider: 'google' | 'facebook') => {
+    setLoading(true);
+    setError('');
+
+    try {
+      let success = false;
+      if (provider === 'google') {
+        success = await loginWithGoogle();
+      } else {
+        success = await loginWithFacebook();
+      }
+
+      if (success) {
+        navigate('/');
+      } else {
+        setError(`${provider} login failed. Please try again.`);
+      }
+    } catch (err) {
+      setError(`${provider} login error. Please try again.`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email) {
+      setError('Please enter your email address first');
+      return;
+    }
+
+    try {
+      const success = await resetPassword(email);
+      if (success) {
+        setError('');
+        alert('Password reset email sent! Check your inbox.');
+      } else {
+        setError('Failed to send password reset email');
+      }
+    } catch (err) {
+      setError('Password reset failed. Please try again.');
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full">
@@ -59,13 +102,21 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* Demo Credentials */}
+          {/* Auth Provider Info */}
           <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-            <h4 className="text-sm font-semibold text-blue-800 mb-2">Demo Credentials:</h4>
-            <div className="text-sm text-blue-700 space-y-1">
-              <p><strong>Admin:</strong> admin@feedback.com / admin123</p>
-              <p><strong>User:</strong> Any email / Any password</p>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-semibold text-blue-800">Authentication Provider:</h4>
+              <span className="text-sm text-blue-600 capitalize">{authProvider}</span>
             </div>
+            {authProvider === 'demo' && (
+              <>
+                <h4 className="text-sm font-semibold text-blue-800 mb-2">Demo Credentials:</h4>
+                <div className="text-sm text-blue-700 space-y-1">
+                  <p><strong>Admin:</strong> admin@feedback.com / admin123</p>
+                  <p><strong>User:</strong> Any email / Any password</p>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Form */}
@@ -168,6 +219,37 @@ export default function LoginPage() {
             </button>
           </form>
 
+          {/* Social Login */}
+          {(authProvider === 'firebase' || authProvider === 'auth0') && (
+            <>
+              <div className="mt-6">
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-300" />
+                  </div>
+                  <div className="relative flex justify-center text-sm">
+                    <span className="px-2 bg-white text-gray-500">Or continue with</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => handleSocialLogin('google')}
+                  className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
+                >
+                  <Chrome className="h-5 w-5 text-red-500" />
+                </button>
+                <button
+                  onClick={() => handleSocialLogin('facebook')}
+                  className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
+                >
+                  <Facebook className="h-5 w-5 text-blue-600" />
+                </button>
+              </div>
+            </>
+          )}
+
           {/* Toggle */}
           <div className="mt-8 text-center">
             <p className="text-gray-600">
@@ -182,6 +264,18 @@ export default function LoginPage() {
                 {isLogin ? 'Sign up' : 'Sign in'}
               </button>
             </p>
+
+            {/* Forgot Password */}
+            {isLogin && (
+              <p className="mt-2 text-gray-600">
+                <button
+                  onClick={handleForgotPassword}
+                  className="text-blue-600 hover:text-blue-500 font-semibold transition-colors"
+                >
+                  Forgot your password?
+                </button>
+              </p>
+            )}
           </div>
         </div>
       </div>
