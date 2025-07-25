@@ -3,6 +3,7 @@ import { aiService } from '../services/aiService';
 import { apiService } from '../services/api';
 import { blockchainService } from '../services/blockchainService';
 import { notificationService } from '../services/notificationService';
+import { useAuth } from './AuthContext';
 
 interface Review {
   id: string;
@@ -131,10 +132,13 @@ const mockReviews: Review[] = [
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const [reviews, setReviews] = useState<Review[]>(mockReviews);
   const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
 
   useEffect(() => {
-    loadReviews();
-  }, []);
+    if (user) {
+      loadReviews();
+    }
+  }, [user]);
 
   const loadReviews = async () => {
     setLoading(true);
@@ -142,10 +146,18 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const response = await apiService.getReviews();
       if (response.success && response.data) {
         setReviews(response.data.reviews);
+        notificationService.info(
+          'Reviews Loaded',
+          `Loaded ${response.data.reviews.length} reviews from server`
+        );
+        return;
       }
     } catch (error) {
       console.error('Failed to load reviews, using mock data:', error);
-      // Keep using mock data as fallback
+      notificationService.warning(
+        'Using Local Data',
+        'Could not connect to server, using cached reviews'
+      );
     } finally {
       setLoading(false);
     }
@@ -154,13 +166,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const addReview = async (reviewData: any) => {
     setLoading(true);
     try {
-      // Show processing notification
-      const processingId = notificationService.info(
-        'Processing Review',
-        'Your review is being analyzed and verified...'
-      );
-
-      // Try to submit to API first
       const response = await apiService.submitReview({
         productName: reviewData.productName,
         category: reviewData.category,
@@ -171,20 +176,27 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (response.success) {
-        // Reload reviews from API
         await loadReviews();
-        notificationService.remove(processingId);
         notificationService.success(
           'Review Submitted',
-          'Your review has been successfully submitted and is pending approval.'
+          'Your review has been submitted successfully!'
         );
         return;
+      } else {
+        notificationService.error(
+          'Submission Failed',
+          response.error || 'Failed to submit review'
+        );
       }
     } catch (error) {
       console.error('API submission failed, using local processing:', error);
+      notificationService.warning(
+        'Processing Locally',
+        'Server unavailable, processing review locally'
+      );
     }
 
-    // Fallback: Process locally with AI
+    // Fallback to local processing
     try {
       const aiAnalysis = await aiService.analyzeSentiment({
         title: reviewData.title,
@@ -227,7 +239,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         reportCount: 0
       };
 
-      // Store on blockchain (simulated)
       try {
         await blockchainService.storeOnBlockchain(newReview);
         notificationService.success(
@@ -238,7 +249,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         console.error('Blockchain storage failed:', blockchainError);
         notificationService.warning(
           'Blockchain Warning',
-          'Review saved locally, but blockchain storage failed.'
+          'Review saved but blockchain storage failed'
         );
       }
 
@@ -246,7 +257,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       
       notificationService.success(
         'Review Submitted',
-        'Your review has been analyzed by AI and is pending approval.'
+        'Review processed locally and saved successfully'
       );
     } catch (error) {
       console.error('AI analysis failed:', error);
@@ -270,13 +281,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           )
         );
         
-        const review = reviews.find(r => r.id === reviewId);
-        if (review) {
-          notificationService.success(
-            'Review Updated',
-            `Review "${review.title}" has been ${status}.`
-          );
-        }
+        notificationService.success(
+          'Status Updated',
+          `Review has been ${status} successfully`
+        );
         return;
       }
     } catch (error) {
@@ -290,13 +298,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       )
     );
     
-    const review = reviews.find(r => r.id === reviewId);
-    if (review) {
-      notificationService.info(
-        'Review Status Updated',
-        `Review "${review.title}" has been ${status}.`
-      );
-    }
+    notificationService.info(
+      'Status Updated',
+      `Review has been ${status} locally`
+    );
   };
 
   const getAnalytics = (): Analytics => {
