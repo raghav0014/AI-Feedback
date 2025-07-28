@@ -9,6 +9,7 @@ import ReviewsPage from './pages/ReviewsPage';
 import AdminDashboard from './pages/AdminDashboard';
 import LoginPage from './pages/LoginPage';
 import CompanyIntegration from './components/CompanyIntegration';
+import WebSocketStatus from './components/WebSocketStatus';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { DataProvider } from './contexts/DataContext';
 
@@ -26,6 +27,7 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
       <Navbar />
+      <WebSocketStatus />
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/login" element={user ? <Navigate to="/" /> : <LoginPage />} />

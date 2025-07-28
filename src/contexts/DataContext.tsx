@@ -3,6 +3,8 @@ import { aiService } from '../services/aiService';
 import { apiService } from '../services/api';
 import { blockchainService } from '../services/blockchainService';
 import { notificationService } from '../services/notificationService';
+import { databaseService } from '../services/databaseService';
+import { websocketService } from '../services/websocketService';
 import { useAuth } from './AuthContext';
 
 interface Review {
@@ -137,12 +139,55 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (user) {
       loadReviews();
+      initializeServices();
     }
   }, [user]);
 
+  const initializeServices = async () => {
+    // Initialize database connection
+    await databaseService.connect();
+    
+    // Initialize WebSocket connection
+    try {
+      await websocketService.connect();
+      
+      // Subscribe to real-time updates
+      websocketService.subscribeToReviewUpdates((review) => {
+        setReviews(prev => {
+          const index = prev.findIndex(r => r.id === review.id);
+          if (index >= 0) {
+            const updated = [...prev];
+            updated[index] = review;
+            return updated;
+          } else {
+            return [review, ...prev];
+          }
+        });
+      });
+      
+      websocketService.subscribeToNotifications((notification) => {
+        notificationService.add(notification);
+      });
+    } catch (error) {
+      console.warn('WebSocket connection failed:', error);
+    }
+  };
   const loadReviews = async () => {
     setLoading(true);
     try {
+      // Try database first
+      const dbResult = await databaseService.getReviews();
+      if (dbResult.success && dbResult.data) {
+        setReviews(dbResult.data);
+        notificationService.info(
+          'Reviews Loaded',
+          `Loaded ${dbResult.data.length} reviews from database`
+        );
+        setLoading(false);
+        return;
+      }
+      
+      // Fallback to API
       const response = await apiService.getReviews();
       if (response.success && response.data) {
         setReviews(response.data.reviews);
@@ -156,7 +201,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       console.error('Failed to load reviews, using mock data:', error);
       notificationService.warning(
         'Using Local Data',
-        'Could not connect to server, using cached reviews'
+        'Could not connect to database or API, using cached reviews'
       );
     } finally {
       setLoading(false);
@@ -166,6 +211,74 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const addReview = async (reviewData: any) => {
     setLoading(true);
     try {
+      // Try database first
+      const dbResult = await databaseService.createReview({
+        userId: reviewData.userId,
+        userName: reviewData.userName,
+        userAvatar: reviewData.userAvatar || 'https://images.pexels.com/photos/1040881/pexels-photo-1040881.jpeg?auto=compress&cs=tinysrgb&w=100&h=100&dpr=2',
+        productName: reviewData.productName,
+        category: reviewData.category,
+        title: reviewData.title,
+        content: reviewData.content,
+        rating: reviewData.rating,
+        status: 'pending',
+        sentiment: 'neutral',
+        sentimentScore: 0,
+        summary: '',
+        keywords: [],
+        isFake: false,
+        fakeConfidence: 0,
+        isVerified: reviewData.isVerified || false,
+        qrCode: reviewData.qrCode,
+        blockchainHash: '',
+        helpful: 0,
+        reportCount: 0
+      });
+      
+      if (dbResult.success && dbResult.data) {
+        // Process with AI and blockchain
+        const aiAnalysis = await aiService.analyzeSentiment({
+          title: reviewData.title,
+          content: reviewData.content,
+          rating: reviewData.rating,
+          productName: reviewData.productName
+        });
+        
+        const blockchainHash = await blockchainService.generateHash({
+          title: reviewData.title,
+          content: reviewData.content,
+          rating: reviewData.rating,
+          timestamp: new Date().toISOString(),
+          userId: reviewData.userId
+        });
+        
+        // Update review with AI analysis and blockchain hash
+        const updatedReview = {
+          ...dbResult.data,
+          sentiment: aiAnalysis.sentiment,
+          sentimentScore: aiAnalysis.score,
+          summary: aiAnalysis.summary,
+          keywords: aiAnalysis.keywords,
+          isFake: aiAnalysis.isFake,
+          fakeConfidence: aiAnalysis.fakeConfidence,
+          blockchainHash
+        };
+        
+        await databaseService.updateReview(dbResult.data.id, updatedReview);
+        await blockchainService.storeOnBlockchain(updatedReview);
+        
+        // Send WebSocket update
+        websocketService.sendReviewUpdate(dbResult.data.id, updatedReview);
+        
+        await loadReviews();
+        notificationService.success(
+          'Review Submitted',
+          'Your review has been submitted and processed successfully!'
+        );
+        return;
+      }
+      
+      // Fallback to API
       const response = await apiService.submitReview({
         productName: reviewData.productName,
         category: reviewData.category,
@@ -273,6 +386,26 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const updateReviewStatus = async (reviewId: string, status: 'approved' | 'rejected') => {
     try {
+      // Try database first
+      const dbResult = await databaseService.updateReview(reviewId, { status });
+      if (dbResult.success) {
+        setReviews(prev => 
+          prev.map(review => 
+            review.id === reviewId ? { ...review, status } : review
+          )
+        );
+        
+        // Send WebSocket update
+        websocketService.sendReviewUpdate(reviewId, { status });
+        
+        notificationService.success(
+          'Status Updated',
+          `Review has been ${status} successfully`
+        );
+        return;
+      }
+      
+      // Fallback to API
       const response = await apiService.updateReviewStatus(reviewId, status);
       if (response.success) {
         setReviews(prev => 
@@ -305,6 +438,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   };
 
   const getAnalytics = (): Analytics => {
+    // Try to get real-time analytics from database
+    databaseService.getAnalytics().then(result => {
+      if (result.success && result.data) {
+        // Could update state with real analytics here
+        console.log('Real analytics:', result.data);
+      }
+    });
+    
+    // Return calculated analytics from current state
     const totalReviews = reviews.length;
     const pendingReviews = reviews.filter(r => r.status === 'pending').length;
     const approvedReviews = reviews.filter(r => r.status === 'approved').length;
