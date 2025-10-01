@@ -7,8 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "setup": "echo 'Setting up FeedbackChain...' && npm install && echo 'Setup complete! Run: npm run dev'"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@auth0/auth0-spa-js": "^2.1.3",
